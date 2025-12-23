@@ -269,7 +269,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
+        model: "google/gemini-3-pro-preview",
         messages: [
           { role: "system", content: GC_SYSTEM_PROMPT },
           ...enhancedMessages,
