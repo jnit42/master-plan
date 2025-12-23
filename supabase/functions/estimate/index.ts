@@ -16,12 +16,12 @@ CRITICAL RULES:
    - Lumber: Calculate exact count, round UP for waste
    - Show: "X SF needed → Y boxes @ Z SF/box"
 
-3. Use REALISTIC subcontractor rates - what GCs PAY subs:
-   - Framing: $5-7/LF for walls
-   - Insulation: $0.55-0.70/SF
-   - Drywall hang+finish L4: $1.40-1.80/SF
-   - LVP install: $1.75-2.50/SF
-   - Baseboard: $1.25-2.00/LF
+3. Use TIGHT subcontractor rates - what GCs PAY subs (use LOWER end for tight budgets):
+   - Framing: $5.00-6.00/LF for walls (tight = $5.50/LF)
+   - Insulation: $0.55-0.65/SF (tight = $0.60/SF)
+   - Drywall hang+finish L4: $1.40-1.65/SF (tight = $1.50/SF)
+   - LVP install: $1.75-2.25/SF (tight = $2.00/SF)
+   - Baseboard: $1.25-1.75/LF (tight = $1.50/LF)
 
 4. Use pricing from search data when provided - PRIORITIZE live data over internal knowledge.
 5. Standard waste factors: 10% drywall, 7% flooring, 10% framing.
@@ -61,23 +61,36 @@ function getCurrentDate(): string {
 
 function extractState(message: string): string | null {
   const statePatterns: Record<string, string[]> = {
-    "Rhode Island": ["rhode island", "ri ", " ri", "ri."],
-    "Massachusetts": ["massachusetts", "ma ", " ma", "ma.", "boston"],
-    "Connecticut": ["connecticut", "ct ", " ct", "ct."],
-    "New York": ["new york", "ny ", " ny", "ny.", "nyc"],
-    "California": ["california", "ca ", " ca", "ca.", "los angeles", "san francisco"],
-    "Texas": ["texas", "tx ", " tx", "tx.", "houston", "dallas", "austin"],
-    "Florida": ["florida", "fl ", " fl", "fl.", "miami", "tampa"],
+    "Rhode Island": ["rhode island", "ri sales", "ri tax", "ri."],
+    "Massachusetts": ["massachusetts", "ma sales", "ma tax", "boston"],
+    "Connecticut": ["connecticut", "ct sales", "ct tax"],
+    "New York": ["new york", "ny sales", "ny tax", "nyc"],
+    "California": ["california", "ca sales", "ca tax", "los angeles", "san francisco"],
+    "Texas": ["texas", "tx sales", "tx tax", "houston", "dallas", "austin"],
+    "Florida": ["florida", "fl sales", "fl tax", "miami", "tampa"],
+    "Pennsylvania": ["pennsylvania", "pa sales", "pa tax", "philadelphia", "pittsburgh"],
+    "Ohio": ["ohio", "oh sales", "cleveland", "columbus"],
+    "New Jersey": ["new jersey", "nj sales", "nj tax"],
   };
   
   const lowerMsg = message.toLowerCase();
+  
+  // Check for explicit state mentions first
   for (const [state, patterns] of Object.entries(statePatterns)) {
     for (const pattern of patterns) {
       if (lowerMsg.includes(pattern)) {
+        console.log("Detected state:", state);
         return state;
       }
     }
   }
+  
+  // Fallback: check for state abbreviations with context
+  if (lowerMsg.includes("rhode") || (lowerMsg.includes("ri") && lowerMsg.includes("tax"))) {
+    console.log("Detected state: Rhode Island (fallback)");
+    return "Rhode Island";
+  }
+  
   return null;
 }
 
