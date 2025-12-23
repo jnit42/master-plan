@@ -1,10 +1,14 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Wifi, WifiOff, Trash2, Calculator, ImagePlus, X } from "lucide-react";
+import { Send, Loader2, Wifi, WifiOff, Trash2, Calculator, ImagePlus, X, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import * as pdfjsLib from "pdfjs-dist";
+
+// Set the worker source
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 type MessageContent = 
   | string 
@@ -15,19 +19,54 @@ type Message = {
   content: MessageContent;
 };
 
-type ImagePreview = {
+type FilePreview = {
   file: File;
   dataUrl: string;
+  type: 'image' | 'pdf';
+  pageCount?: number;
 };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/estimate`;
+
+async function convertPdfToImages(file: File): Promise<string[]> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const images: string[] = [];
+  
+  // Convert each page (up to 10 pages to avoid huge payloads)
+  const maxPages = Math.min(pdf.numPages, 10);
+  
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await pdf.getPage(i);
+    const scale = 2; // Higher scale for better readability
+    const viewport = page.getViewport({ scale });
+    
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) continue;
+    
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    
+    await page.render({
+      canvasContext: context,
+      viewport: viewport,
+    }).promise;
+    
+    // Convert to JPEG for smaller file size
+    images.push(canvas.toDataURL('image/jpeg', 0.85));
+  }
+  
+  return images;
+}
 
 export function EstimatorChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [useLivePricing, setUseLivePricing] = useState(true);
-  const [images, setImages] = useState<ImagePreview[]>([]);
+  const [files, setFiles] = useState<FilePreview[]>([]);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -57,53 +96,85 @@ export function EstimatorChat() {
            msg.includes("drawing");
   };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files;
+    if (!selectedFiles) return;
 
-    const newImages: ImagePreview[] = [];
-    const maxSize = 10 * 1024 * 1024; // 10MB limit
+    const maxSize = 20 * 1024 * 1024; // 20MB limit
+    setIsProcessingFile(true);
 
-    Array.from(files).forEach(file => {
-      if (!file.type.startsWith('image/')) {
-        toast.error(`${file.name} is not an image`);
-        return;
+    try {
+      for (const file of Array.from(selectedFiles)) {
+        if (file.size > maxSize) {
+          toast.error(`${file.name} is too large (max 20MB)`);
+          continue;
+        }
+
+        if (file.type === 'application/pdf') {
+          // Convert PDF to images
+          toast.info(`Processing ${file.name}...`);
+          const pdfImages = await convertPdfToImages(file);
+          
+          if (pdfImages.length > 0) {
+            // Store first page as preview, but we'll send all pages
+            setFiles(prev => [...prev, { 
+              file, 
+              dataUrl: pdfImages[0], 
+              type: 'pdf',
+              pageCount: pdfImages.length 
+            }]);
+            toast.success(`${file.name}: ${pdfImages.length} page(s) ready`);
+          }
+        } else if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            setFiles(prev => [...prev, { file, dataUrl, type: 'image' }]);
+          };
+          reader.readAsDataURL(file);
+        } else {
+          toast.error(`${file.name}: Unsupported format. Use PDF or images.`);
+        }
       }
-      if (file.size > maxSize) {
-        toast.error(`${file.name} is too large (max 10MB)`);
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        setImages(prev => [...prev, { file, dataUrl }]);
-      };
-      reader.readAsDataURL(file);
-    });
-
-    // Reset input so same file can be selected again
-    e.target.value = '';
+    } catch (error) {
+      console.error("File processing error:", error);
+      toast.error("Failed to process file");
+    } finally {
+      setIsProcessingFile(false);
+      e.target.value = '';
+    }
   };
 
-  const removeImage = (index: number) => {
-    setImages(prev => prev.filter((_, i) => i !== index));
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async () => {
-    if ((!input.trim() && images.length === 0) || isLoading) return;
+    if ((!input.trim() && files.length === 0) || isLoading || isProcessingFile) return;
 
     // Build message content
     let userContent: MessageContent;
+    const imageUrls: string[] = [];
     
-    if (images.length > 0) {
+    // Process all files - convert PDFs to multiple images
+    for (const f of files) {
+      if (f.type === 'pdf') {
+        // Re-convert PDF to get all pages
+        const pdfImages = await convertPdfToImages(f.file);
+        imageUrls.push(...pdfImages);
+      } else {
+        imageUrls.push(f.dataUrl);
+      }
+    }
+    
+    if (imageUrls.length > 0) {
       const contentParts: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [];
       
-      // Add images first
-      images.forEach(img => {
+      // Add all images
+      imageUrls.forEach(url => {
         contentParts.push({
           type: "image_url",
-          image_url: { url: img.dataUrl }
+          image_url: { url }
         });
       });
       
@@ -111,10 +182,9 @@ export function EstimatorChat() {
       if (input.trim()) {
         contentParts.push({ type: "text", text: input.trim() });
       } else {
-        // Default prompt if only image uploaded
         contentParts.push({ 
           type: "text", 
-          text: "Analyze this blueprint/plan. Extract all dimensions, identify the scope of work, and create a complete material takeoff and labor estimate." 
+          text: "Analyze this blueprint/plan. Extract all dimensions, identify the full scope of work, and create a complete material takeoff down to every item needed. Also provide the full labor scope with fair subcontractor pricing." 
         });
       }
       
@@ -126,7 +196,7 @@ export function EstimatorChat() {
     const userMessage: Message = { role: "user", content: userContent };
     setMessages(prev => [...prev, userMessage]);
     setInput("");
-    setImages([]);
+    setFiles([]);
     setIsLoading(true);
 
     let assistantContent = "";
@@ -147,8 +217,8 @@ export function EstimatorChat() {
     try {
       const enableLivePricing = useLivePricing && shouldUseLivePricing(typeof userContent === 'string' ? userContent : input);
       
-      if (images.length > 0) {
-        toast.info("Analyzing blueprint...", { duration: 3000 });
+      if (imageUrls.length > 0) {
+        toast.info(`Analyzing ${imageUrls.length} page(s)...`, { duration: 3000 });
       } else if (enableLivePricing) {
         toast.info("Fetching live pricing...", { duration: 2000 });
       }
@@ -230,7 +300,7 @@ export function EstimatorChat() {
 
   const clearChat = () => {
     setMessages([]);
-    setImages([]);
+    setFiles([]);
   };
 
   const getDisplayContent = (content: MessageContent): string => {
@@ -289,7 +359,7 @@ export function EstimatorChat() {
               </div>
               <h2 className="text-xl font-semibold text-foreground mb-2">Ready to estimate</h2>
               <p className="text-muted-foreground text-sm mb-6">
-                Upload a blueprint or describe your project for a detailed material takeoff with competitive sub rates.
+                Upload blueprints (PDF or images) or describe your project for a detailed material takeoff.
               </p>
               <div className="space-y-3">
                 <div className="bg-muted/50 rounded-xl p-4 text-left">
@@ -300,11 +370,11 @@ export function EstimatorChat() {
                 </div>
                 <div className="bg-blue-500/10 rounded-xl p-4 text-left border border-blue-500/20">
                   <p className="text-xs text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide font-medium flex items-center gap-1.5">
-                    <ImagePlus className="h-3 w-3" />
-                    Blueprint Upload
+                    <FileText className="h-3 w-3" />
+                    PDF & Image Upload
                   </p>
                   <p className="text-sm text-foreground">
-                    Upload floor plans or architectural drawings for full scope analysis and takeoffs.
+                    Upload floor plans, blueprints, or architectural drawings (PDF or images) for full scope analysis.
                   </p>
                 </div>
               </div>
@@ -329,14 +399,19 @@ export function EstimatorChat() {
                       {/* Show images in user message */}
                       {getImageUrls(msg.content).length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2">
-                          {getImageUrls(msg.content).map((url, idx) => (
+                          {getImageUrls(msg.content).slice(0, 4).map((url, idx) => (
                             <img 
                               key={idx}
                               src={url} 
-                              alt="Uploaded blueprint" 
-                              className="max-h-32 rounded-lg border border-primary-foreground/20"
+                              alt={`Page ${idx + 1}`} 
+                              className="max-h-24 rounded-lg border border-primary-foreground/20"
                             />
                           ))}
+                          {getImageUrls(msg.content).length > 4 && (
+                            <div className="flex items-center justify-center h-24 px-3 rounded-lg bg-primary-foreground/10 text-xs">
+                              +{getImageUrls(msg.content).length - 4} more
+                            </div>
+                          )}
                         </div>
                       )}
                       <p className="whitespace-pre-wrap text-sm">{getDisplayContent(msg.content)}</p>
@@ -403,7 +478,7 @@ export function EstimatorChat() {
                 <div className="bg-card border border-border/50 rounded-2xl px-4 py-3 shadow-sm">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-xs">{images.length > 0 ? "Analyzing blueprint..." : "Calculating..."}</span>
+                    <span className="text-xs">Analyzing...</span>
                   </div>
                 </div>
               </div>
@@ -414,19 +489,26 @@ export function EstimatorChat() {
         )}
       </div>
 
-      {/* Image Previews */}
-      {images.length > 0 && (
+      {/* File Previews */}
+      {files.length > 0 && (
         <div className="border-t border-border/50 px-4 py-3 bg-muted/30">
           <div className="flex gap-2 max-w-3xl mx-auto flex-wrap">
-            {images.map((img, idx) => (
+            {files.map((f, idx) => (
               <div key={idx} className="relative group">
-                <img 
-                  src={img.dataUrl} 
-                  alt={`Upload ${idx + 1}`}
-                  className="h-16 w-auto rounded-lg border border-border"
-                />
+                {f.type === 'pdf' ? (
+                  <div className="h-16 w-20 rounded-lg border border-border bg-card flex flex-col items-center justify-center gap-1">
+                    <FileText className="h-6 w-6 text-red-500" />
+                    <span className="text-[10px] text-muted-foreground">{f.pageCount} pg</span>
+                  </div>
+                ) : (
+                  <img 
+                    src={f.dataUrl} 
+                    alt={`Upload ${idx + 1}`}
+                    className="h-16 w-auto rounded-lg border border-border"
+                  />
+                )}
                 <button
-                  onClick={() => removeImage(idx)}
+                  onClick={() => removeFile(idx)}
                   className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="h-3 w-3" />
@@ -443,32 +525,36 @@ export function EstimatorChat() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,application/pdf"
             multiple
-            onChange={handleImageSelect}
+            onChange={handleFileSelect}
             className="hidden"
           />
           <Button
             variant="outline"
             size="icon"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading}
+            disabled={isLoading || isProcessingFile}
             className="h-12 w-12 rounded-xl shrink-0"
-            title="Upload blueprint or floor plan"
+            title="Upload blueprint (PDF or image)"
           >
-            <ImagePlus className="h-5 w-5" />
+            {isProcessingFile ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <ImagePlus className="h-5 w-5" />
+            )}
           </Button>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={images.length > 0 ? "Add instructions for this blueprint..." : "Describe your project or upload a blueprint..."}
+            placeholder={files.length > 0 ? "Add instructions for this blueprint..." : "Describe your project or upload a blueprint..."}
             className="min-h-[48px] max-h-[120px] resize-none text-sm rounded-xl border-border/50 bg-muted/30 focus:bg-background transition-colors"
             disabled={isLoading}
           />
           <Button
             onClick={handleSubmit}
-            disabled={(!input.trim() && images.length === 0) || isLoading}
+            disabled={(!input.trim() && files.length === 0) || isLoading || isProcessingFile}
             size="icon"
             className="h-12 w-12 rounded-xl shrink-0"
           >
