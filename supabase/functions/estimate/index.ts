@@ -16,12 +16,13 @@ CRITICAL RULES:
    - Lumber: Calculate exact count, round UP for waste
    - Show: "X SF needed → Y boxes @ Z SF/box"
 
-3. Use TIGHT subcontractor rates - what GCs PAY subs (use LOWER end for tight budgets):
-   - Framing: $5.00-6.00/LF for walls (tight = $5.50/LF)
-   - Insulation: $0.55-0.65/SF (tight = $0.60/SF)
-   - Drywall hang+finish L4: $1.40-1.65/SF (tight = $1.50/SF)
-   - LVP install: $1.75-2.25/SF (tight = $2.00/SF)
-   - Baseboard: $1.25-1.75/LF (tight = $1.50/LF)
+3. Use 2025 SUBCONTRACTOR LABOR RATES (what GC pays sub, labor only, not total installed):
+   - Framing: $6-8/LF for walls (competitive = $7/LF)
+   - Insulation: $0.60-0.85/SF (competitive = $0.70/SF)
+   - Drywall hang+finish L4: $1.00-1.75/SF labor only (competitive = $1.25/SF)
+   - LVP install: $2-4/SF labor (competitive = $2.50/SF, click-lock is faster)
+   - Baseboard: $1.50-2.50/LF (competitive = $2.00/LF)
+   NOTE: These are 2025 rates. "Tight" means competitive, not below-market.
 
 4. Use pricing from search data when provided - PRIORITIZE live data over internal knowledge.
 5. Standard waste factors: 10% drywall, 7% flooring, 10% framing.
