@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Wifi, WifiOff, Trash2 } from "lucide-react";
+import { Send, Loader2, Wifi, WifiOff, Trash2, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -30,11 +30,8 @@ export function EstimatorChat() {
     scrollToBottom();
   }, [messages]);
 
-  // The edge function now handles all search logic with dynamic dates
-  // Frontend just signals that live pricing should be used
   const shouldUseLivePricing = (userMessage: string): boolean => {
     const msg = userMessage.toLowerCase();
-    // Enable live pricing for any estimate-related request
     return msg.includes("estimate") || 
            msg.includes("cost") || 
            msg.includes("price") || 
@@ -75,7 +72,7 @@ export function EstimatorChat() {
       const enableLivePricing = useLivePricing && shouldUseLivePricing(input);
       
       if (enableLivePricing) {
-        toast.info("Fetching live pricing data...", { duration: 2000 });
+        toast.info("Fetching live pricing...", { duration: 2000 });
       }
       
       const response = await fetch(CHAT_URL, {
@@ -155,32 +152,32 @@ export function EstimatorChat() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-card">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">GC Estimator</h1>
-          <p className="text-sm text-muted-foreground">Fast, accurate takeoffs with live pricing</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-muted/50 rounded-full px-3 py-1.5">
-            <Switch
-              id="live-pricing"
-              checked={useLivePricing}
-              onCheckedChange={setUseLivePricing}
-              className="scale-90"
-            />
-            <Label htmlFor="live-pricing" className="text-sm font-medium flex items-center gap-1.5 cursor-pointer">
-              {useLivePricing ? (
-                <Wifi className="h-3.5 w-3.5 text-green-500" />
-              ) : (
-                <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />
-              )}
-              Live Prices
-            </Label>
+    <div className="flex flex-col h-full bg-gradient-to-b from-background to-muted/20">
+      {/* Header - Clean and minimal */}
+      <div className="border-b border-border/50 px-6 py-4 flex items-center justify-between bg-background/80 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Calculator className="h-5 w-5 text-primary" />
           </div>
+          <div>
+            <h1 className="text-lg font-semibold text-foreground">GC Estimator</h1>
+            <p className="text-xs text-muted-foreground">Material takeoffs & labor costs</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setUseLivePricing(!useLivePricing)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              useLivePricing 
+                ? "bg-green-500/10 text-green-600 dark:text-green-400" 
+                : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {useLivePricing ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            {useLivePricing ? "Live" : "Off"}
+          </button>
           {messages.length > 0 && (
-            <Button variant="ghost" size="icon" onClick={clearChat} className="h-8 w-8">
+            <Button variant="ghost" size="icon" onClick={clearChat} className="h-8 w-8 text-muted-foreground hover:text-foreground">
               <Trash2 className="h-4 w-4" />
             </Button>
           )}
@@ -188,136 +185,137 @@ export function EstimatorChat() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="bg-muted/30 rounded-2xl p-8 max-w-lg">
-              <h2 className="text-lg font-semibold text-foreground mb-2">Ready to estimate</h2>
-              <p className="text-muted-foreground mb-4">
-                Describe your project scope and I'll generate a detailed material takeoff with labor costs.
+      <div className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full p-6">
+            <div className="text-center max-w-md">
+              <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Calculator className="h-8 w-8 text-primary" />
+              </div>
+              <h2 className="text-xl font-semibold text-foreground mb-2">Ready to estimate</h2>
+              <p className="text-muted-foreground text-sm mb-6">
+                Describe your project and get a detailed material takeoff with competitive sub rates.
               </p>
-              <div className="text-left bg-background/50 rounded-lg p-4 text-sm text-muted-foreground font-mono">
-                <p className="mb-1">Try:</p>
-                <p>"20x30 basement, 8ft ceilings, frame + insulate + drywall + Flooret Nakan flooring. RI sales tax. Give me tight sub rates."</p>
+              <div className="bg-muted/50 rounded-xl p-4 text-left">
+                <p className="text-xs text-muted-foreground mb-2 uppercase tracking-wide font-medium">Example</p>
+                <p className="text-sm text-foreground">
+                  "20x30 basement, 8ft ceilings. Frame, insulate, drywall, Flooret Nakan flooring. RI sales tax."
+                </p>
               </div>
             </div>
           </div>
-        )}
-        
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[90%] rounded-xl px-4 py-3 ${
-                msg.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-card border border-border shadow-sm"
-              }`}
-            >
-              {msg.role === "assistant" ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      table: ({ children }) => (
-                        <div className="overflow-x-auto my-4 rounded-lg border border-border bg-background">
-                          <table className="min-w-full text-sm">
-                            {children}
-                          </table>
-                        </div>
-                      ),
-                      thead: ({ children }) => (
-                        <thead className="bg-muted/70 border-b border-border">{children}</thead>
-                      ),
-                      th: ({ children }) => (
-                        <th className="px-4 py-2.5 font-semibold text-left text-foreground whitespace-nowrap text-xs uppercase tracking-wide">
-                          {children}
-                        </th>
-                      ),
-                      td: ({ children }) => (
-                        <td className="px-4 py-2 border-b border-border/30 text-foreground">
-                          {children}
-                        </td>
-                      ),
-                      tr: ({ children }) => (
-                        <tr className="hover:bg-muted/20 transition-colors">{children}</tr>
-                      ),
-                      strong: ({ children }) => (
-                        <strong className="font-bold text-foreground">{children}</strong>
-                      ),
-                      h2: ({ children }) => (
-                        <h2 className="text-base font-bold text-foreground mt-4 mb-2 border-b border-border pb-1">{children}</h2>
-                      ),
-                      h3: ({ children }) => (
-                        <h3 className="text-sm font-semibold text-foreground mt-3 mb-1">{children}</h3>
-                      ),
-                      ul: ({ children }) => (
-                        <ul className="list-disc list-outside ml-4 my-2 space-y-0.5 text-foreground">{children}</ul>
-                      ),
-                      li: ({ children }) => (
-                        <li className="text-foreground">{children}</li>
-                      ),
-                      p: ({ children }) => (
-                        <p className="my-2 text-foreground leading-relaxed">{children}</p>
-                      ),
-                    }}
-                  >
-                    {msg.content}
-                  </ReactMarkdown>
+        ) : (
+          <div className="p-4 space-y-4 max-w-4xl mx-auto">
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`rounded-2xl px-4 py-3 ${
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground max-w-[80%]"
+                      : "bg-card border border-border/50 shadow-sm w-full"
+                  }`}
+                >
+                  {msg.role === "assistant" ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none prose-table:my-2 prose-p:my-1.5 prose-ul:my-1.5 prose-h2:text-base prose-h2:mt-4 prose-h2:mb-2 prose-h3:text-sm prose-h3:mt-3">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          table: ({ children }) => (
+                            <div className="overflow-x-auto my-3 rounded-lg border border-border bg-muted/30">
+                              <table className="min-w-full text-xs">
+                                {children}
+                              </table>
+                            </div>
+                          ),
+                          thead: ({ children }) => (
+                            <thead className="bg-muted/50">{children}</thead>
+                          ),
+                          th: ({ children }) => (
+                            <th className="px-3 py-2 font-semibold text-left text-foreground text-[11px] uppercase tracking-wider">
+                              {children}
+                            </th>
+                          ),
+                          td: ({ children }) => (
+                            <td className="px-3 py-2 border-t border-border/30 text-foreground text-xs">
+                              {children}
+                            </td>
+                          ),
+                          tr: ({ children }) => (
+                            <tr className="hover:bg-muted/20">{children}</tr>
+                          ),
+                          strong: ({ children }) => (
+                            <strong className="font-semibold text-foreground">{children}</strong>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-sm font-bold text-foreground mt-5 mb-2 pb-1 border-b border-border/50">{children}</h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 className="text-xs font-semibold text-foreground mt-3 mb-1">{children}</h3>
+                          ),
+                          ul: ({ children }) => (
+                            <ul className="list-disc list-outside ml-4 my-1.5 space-y-0.5 text-xs">{children}</ul>
+                          ),
+                          li: ({ children }) => (
+                            <li className="text-foreground text-xs">{children}</li>
+                          ),
+                          p: ({ children }) => (
+                            <p className="my-1.5 text-foreground text-sm leading-relaxed">{children}</p>
+                          ),
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                  )}
                 </div>
-              ) : (
-                <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
-              )}
-            </div>
-          </div>
-        ))}
-        
-        {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
-          <div className="flex justify-start">
-            <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Calculating estimate...</span>
               </div>
-            </div>
+            ))}
+            
+            {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
+              <div className="flex justify-start">
+                <div className="bg-card border border-border/50 rounded-2xl px-4 py-3 shadow-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-xs">Calculating...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div ref={messagesEndRef} />
           </div>
         )}
-        
-        <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t border-border p-4 bg-card">
-        <div className="flex gap-3 max-w-4xl mx-auto">
+      {/* Input - Clean bottom bar */}
+      <div className="border-t border-border/50 p-4 bg-background/80 backdrop-blur-sm">
+        <div className="flex gap-2 max-w-3xl mx-auto">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe your project scope..."
-            className="min-h-[56px] resize-none text-sm bg-background"
+            placeholder="Describe your project..."
+            className="min-h-[48px] max-h-[120px] resize-none text-sm rounded-xl border-border/50 bg-muted/30 focus:bg-background transition-colors"
             disabled={isLoading}
           />
           <Button
             onClick={handleSubmit}
             disabled={!input.trim() || isLoading}
             size="icon"
-            className="h-14 w-14 shrink-0"
+            className="h-12 w-12 rounded-xl shrink-0"
           >
             {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Send className="h-5 w-5" />
+              <Send className="h-4 w-4" />
             )}
           </Button>
         </div>
-        {useLivePricing && (
-          <p className="text-xs text-center text-green-600 dark:text-green-400 mt-2 flex items-center justify-center gap-1">
-            <Wifi className="h-3 w-3" />
-            Live pricing via Perplexity web search
-          </p>
-        )}
       </div>
     </div>
   );
