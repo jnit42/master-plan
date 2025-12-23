@@ -24,7 +24,7 @@ CRITICAL RULES:
    - Baseboard: $1.50-2.50/LF (competitive = $2.00/LF)
    NOTE: These are 2025 rates. "Tight" means competitive, not below-market.
 
-4. Use pricing from search data when provided - PRIORITIZE live data over internal knowledge.
+4. PRIORITIZE LIVE SEARCH DATA when provided. Cross-reference multiple sources.
 5. Standard waste factors: 10% drywall, 7% flooring, 10% framing.
 6. Apply sales tax to materials only when state specified.
 
@@ -53,11 +53,11 @@ OUTPUT FORMAT - Clean markdown tables:
 
 Be CONCISE. Show your math in the Calculation column.`;
 
-function getCurrentDate(): string {
+function getCurrentDate(): { month: string; year: number; formatted: string } {
   const now = new Date();
   const month = now.toLocaleString('en-US', { month: 'long' });
   const year = now.getFullYear();
-  return `${month} ${year}`;
+  return { month, year, formatted: `${month} ${year}` };
 }
 
 function extractState(message: string): string | null {
@@ -76,7 +76,6 @@ function extractState(message: string): string | null {
   
   const lowerMsg = message.toLowerCase();
   
-  // Check for explicit state mentions first
   for (const [state, patterns] of Object.entries(statePatterns)) {
     for (const pattern of patterns) {
       if (lowerMsg.includes(pattern)) {
@@ -86,7 +85,6 @@ function extractState(message: string): string | null {
     }
   }
   
-  // Fallback: check for state abbreviations with context
   if (lowerMsg.includes("rhode") || (lowerMsg.includes("ri") && lowerMsg.includes("tax"))) {
     console.log("Detected state: Rhode Island (fallback)");
     return "Rhode Island";
@@ -95,40 +93,96 @@ function extractState(message: string): string | null {
   return null;
 }
 
-async function searchPricing(apiKey: string, query: string): Promise<string | null> {
-  try {
-    console.log("Perplexity search:", query);
-    const response = await fetch("https://api.perplexity.ai/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "sonar-pro",
-        messages: [
-          { 
-            role: "system", 
-            content: "Return ONLY current prices as a simple list. Format: 'Product: $X.XX per unit'. Include source if available. No explanations needed." 
-          },
-          { role: "user", content: query }
-        ],
-        search_recency_filter: "week",
-      }),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || "";
-      console.log("Perplexity result:", content.substring(0, 300));
-      return content;
+async function searchWithRetry(apiKey: string, query: string, retries = 2): Promise<string | null> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      console.log(`Perplexity search (attempt ${i + 1}):`, query.substring(0, 80));
+      const response = await fetch("https://api.perplexity.ai/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "sonar-pro",
+          messages: [
+            { 
+              role: "system", 
+              content: "You are a construction pricing researcher. Return ONLY current prices as a simple list. Format each item as: 'Product: $X.XX per unit (Source)'. Be specific with prices. No explanations." 
+            },
+            { role: "user", content: query }
+          ],
+          search_recency_filter: "week",
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content || "";
+        if (content && content.length > 20) {
+          console.log("Perplexity result:", content.substring(0, 200));
+          return content;
+        }
+      } else {
+        console.error("Perplexity failed:", response.status);
+      }
+    } catch (e) {
+      console.error("Perplexity error:", e);
     }
-    console.error("Perplexity failed:", response.status);
-    return null;
-  } catch (e) {
-    console.error("Perplexity error:", e);
-    return null;
+    
+    if (i < retries) {
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
+  return null;
+}
+
+// Multi-angle search queries for cross-validation
+function buildSearchQueries(userMsg: string, date: string, state: string | null) {
+  const queries: { name: string; query: string }[] = [];
+  const region = state || "United States";
+  
+  if (userMsg.includes("floor") || userMsg.includes("lvp") || userMsg.includes("nakan")) {
+    queries.push({
+      name: "Flooring",
+      query: `Flooret Nakan Base LVP flooring current retail price per square foot AND per box ${date}. Also check similar 20mil wear layer LVP pricing.`
+    });
+  }
+  
+  if (userMsg.includes("drywall") || userMsg.includes("sheetrock") || userMsg.includes("dry wall")) {
+    queries.push({
+      name: "Drywall Materials",
+      query: `1/2 inch drywall 4x8 sheet current retail price ${date}. Check Home Depot, Lowes, and building supply prices.`
+    });
+  }
+  
+  if (userMsg.includes("insul")) {
+    queries.push({
+      name: "Insulation",
+      query: `R-13 fiberglass batt insulation current price per bag AND per square foot ${date}. Include Johns Manville, Owens Corning, and Knauf pricing.`
+    });
+  }
+  
+  if (userMsg.includes("frame") || userMsg.includes("stud") || userMsg.includes("lumber") || userMsg.includes("2x4")) {
+    queries.push({
+      name: "Lumber",
+      query: `2x4x8 SPF stud lumber current price ${date}. Check Home Depot, Lowes, and lumber yard pricing.`
+    });
+  }
+  
+  // Always search for labor rates with regional focus
+  queries.push({
+    name: `Labor Rates (${region})`,
+    query: `${region} residential construction subcontractor labor rates ${date}. What do GCs pay subs for: drywall hang and finish per SF, framing per linear foot, LVP flooring installation per SF, baseboard installation per linear foot. Labor only rates, not total installed cost.`
+  });
+  
+  // Add a second labor query for cross-validation
+  queries.push({
+    name: "Labor Rate Validation",
+    query: `Drywall subcontractor rates ${date} per square foot labor only hang and finish level 4. Flooring installer rates per square foot LVP click-lock. Current market rates.`
+  });
+  
+  return queries;
 }
 
 serve(async (req) => {
@@ -137,68 +191,44 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, searchPricing: searchRequest } = await req.json();
-    console.log("Request received, live pricing:", !!searchRequest?.query);
+    const { messages } = await req.json();
+    const lastUserMsg = messages[messages.length - 1]?.content || "";
+    const lowerMsg = lastUserMsg.toLowerCase();
+    
+    const date = getCurrentDate();
+    const state = extractState(lowerMsg);
+    
+    console.log(`Request received. Date: ${date.formatted}, State: ${state || "not specified"}`);
     
     let pricingContext = "";
-    const currentDate = getCurrentDate();
+    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
     
-    if (searchRequest?.query) {
-      const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+    if (PERPLEXITY_API_KEY) {
+      const searchQueries = buildSearchQueries(lowerMsg, date.formatted, state);
+      console.log(`Running ${searchQueries.length} pricing searches...`);
       
-      if (PERPLEXITY_API_KEY) {
-        const userMsg = searchRequest.query.toLowerCase();
-        const state = extractState(userMsg);
-        const searches: Promise<string | null>[] = [];
-        const searchNames: string[] = [];
-        
-        // Build focused, current searches
-        if (userMsg.includes("floor") || userMsg.includes("lvp") || userMsg.includes("nakan")) {
-          searches.push(searchPricing(PERPLEXITY_API_KEY, 
-            `Flooret Nakan Base LVP flooring current retail price per square foot or per box ${currentDate}`));
-          searchNames.push("Flooring");
+      // Run all searches in parallel
+      const results = await Promise.all(
+        searchQueries.map(q => searchWithRetry(PERPLEXITY_API_KEY, q.query).then(r => ({ name: q.name, result: r })))
+      );
+      
+      const validResults: string[] = [];
+      for (const { name, result } of results) {
+        if (result && 
+            !result.toLowerCase().includes("don't have access") && 
+            !result.toLowerCase().includes("cannot provide") &&
+            !result.toLowerCase().includes("no current prices") &&
+            !result.toLowerCase().includes("not available") &&
+            result.length > 50) {
+          validResults.push(`**${name}**:\n${result}`);
         }
-        if (userMsg.includes("drywall") || userMsg.includes("sheetrock")) {
-          searches.push(searchPricing(PERPLEXITY_API_KEY, 
-            `1/2 inch drywall 4x8 sheet current price retail ${currentDate}`));
-          searchNames.push("Drywall");
-        }
-        if (userMsg.includes("insul")) {
-          searches.push(searchPricing(PERPLEXITY_API_KEY, 
-            `R-13 fiberglass batt insulation current retail price per bag or square foot ${currentDate}`));
-          searchNames.push("Insulation");
-        }
-        if (userMsg.includes("frame") || userMsg.includes("stud") || userMsg.includes("lumber")) {
-          searches.push(searchPricing(PERPLEXITY_API_KEY, 
-            `2x4x8 lumber stud current price ${currentDate}`));
-          searchNames.push("Lumber");
-        }
-        
-        // Regional labor rate search
-        const region = state || "United States";
-        searches.push(searchPricing(PERPLEXITY_API_KEY, 
-          `${region} residential subcontractor labor rates drywall framing flooring installation per square foot ${currentDate}`));
-        searchNames.push(`Labor Rates (${region})`);
-        
-        const results = await Promise.all(searches);
-        
-        const validResults: string[] = [];
-        results.forEach((result, i) => {
-          if (result && 
-              !result.toLowerCase().includes("don't have access") && 
-              !result.toLowerCase().includes("cannot provide") &&
-              !result.toLowerCase().includes("no current") &&
-              !result.toLowerCase().includes("not listed")) {
-            validResults.push(`**${searchNames[i]}**: ${result}`);
-          }
-        });
-        
-        if (validResults.length > 0) {
-          pricingContext = `\n\n[LIVE PRICING DATA as of ${currentDate} - USE THESE PRICES]\n${validResults.join("\n\n")}\n`;
-          console.log("Added pricing context with", validResults.length, "results");
-        } else {
-          console.log("No valid pricing results, using internal knowledge");
-        }
+      }
+      
+      if (validResults.length > 0) {
+        pricingContext = `\n\n[LIVE PRICING DATA as of ${date.formatted} - PRIORITIZE THESE PRICES]\n${validResults.join("\n\n")}\n\nNote: Cross-reference these sources for accuracy. Use the most competitive pricing that appears consistently across sources.\n`;
+        console.log(`Added ${validResults.length} valid pricing results`);
+      } else {
+        console.log("No valid pricing results from searches, using internal knowledge");
       }
     }
 

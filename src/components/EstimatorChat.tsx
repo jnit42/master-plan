@@ -30,33 +30,22 @@ export function EstimatorChat() {
     scrollToBottom();
   }, [messages]);
 
-  const extractPricingQuery = (userMessage: string): string | null => {
+  // The edge function now handles all search logic with dynamic dates
+  // Frontend just signals that live pricing should be used
+  const shouldUseLivePricing = (userMessage: string): boolean => {
     const msg = userMessage.toLowerCase();
-    const queries: string[] = [];
-    
-    // Build comprehensive pricing query based on materials mentioned
-    if (msg.includes("flooret") || msg.includes("nakan") || msg.includes("lvp") || msg.includes("flooring")) {
-      queries.push("Flooret Nakan Base LVP flooring current price per square foot");
-    }
-    if (msg.includes("drywall") || msg.includes("sheetrock") || msg.includes("dry wall")) {
-      queries.push("1/2 inch drywall 4x8 sheet price Home Depot Lowes current");
-    }
-    if (msg.includes("insulation") || msg.includes("insulate") || msg.includes("r-13") || msg.includes("r13")) {
-      queries.push("R-13 fiberglass batt insulation price per square foot current");
-    }
-    if (msg.includes("frame") || msg.includes("framing") || msg.includes("2x4") || msg.includes("stud") || msg.includes("lumber")) {
-      queries.push("2x4x8 SPF lumber stud price Home Depot current");
-    }
-    if (msg.includes("baseboard") || msg.includes("trim") || msg.includes("base board")) {
-      queries.push("MDF baseboard trim 3.5 inch price per linear foot");
-    }
-    
-    // Always search for labor rates if it's an estimate request
-    if (msg.includes("labor") || msg.includes("sub") || msg.includes("cost") || msg.includes("estimate")) {
-      queries.push("subcontractor rates drywall framing flooring installation 2024 2025 per square foot");
-    }
-    
-    return queries.length > 0 ? queries.join(". ") : null;
+    // Enable live pricing for any estimate-related request
+    return msg.includes("estimate") || 
+           msg.includes("cost") || 
+           msg.includes("price") || 
+           msg.includes("quote") ||
+           msg.includes("take") ||
+           msg.includes("material") ||
+           msg.includes("labor") ||
+           msg.includes("floor") ||
+           msg.includes("drywall") ||
+           msg.includes("frame") ||
+           msg.includes("insul");
   };
 
   const handleSubmit = async () => {
@@ -83,9 +72,9 @@ export function EstimatorChat() {
     };
 
     try {
-      const pricingQuery = useLivePricing ? extractPricingQuery(input) : null;
+      const enableLivePricing = useLivePricing && shouldUseLivePricing(input);
       
-      if (pricingQuery && useLivePricing) {
+      if (enableLivePricing) {
         toast.info("Fetching live pricing data...", { duration: 2000 });
       }
       
@@ -97,7 +86,6 @@ export function EstimatorChat() {
         },
         body: JSON.stringify({
           messages: [...messages, userMessage],
-          searchPricing: pricingQuery ? { query: pricingQuery } : null,
         }),
       });
 
