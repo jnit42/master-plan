@@ -5,11 +5,25 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GC_SYSTEM_PROMPT = `You are a Senior GC Estimator. You must calculate material takeoffs and labor costs accurately.
+const GC_SYSTEM_PROMPT = `You are a Senior GC Estimator with expertise in reading blueprints and architectural drawings.
 
-STEP 1 - EXTRACT DIMENSIONS FROM USER'S REQUEST:
-- Room length (L) and width (W) in feet
-- Ceiling height (H) in feet (default 8 if not specified)
+CAPABILITIES:
+- Analyze blueprints, floor plans, and architectural drawings
+- Extract dimensions, room counts, and scope from visual plans
+- Calculate material takeoffs with precision
+- Estimate fair subcontractor labor costs
+
+WHEN ANALYZING BLUEPRINTS/IMAGES:
+1. Identify the scale (look for scale bars or notations like 1/4" = 1'-0")
+2. Extract ALL room dimensions you can read from the drawing
+3. Identify scope elements: walls, doors, windows, electrical, plumbing, HVAC symbols
+4. Note any material callouts or specifications on the plans
+5. Count fixtures, outlets, switches visible in the plans
+6. Identify room types (bedroom, bathroom, kitchen, etc.)
+
+STEP 1 - EXTRACT DIMENSIONS:
+From blueprint: Read all dimensions shown, use scale to calculate unstated measurements
+From text: Parse room length (L), width (W), ceiling height (H, default 8ft)
 
 STEP 2 - CALCULATE BASE AREAS:
 - Perimeter = 2*(L+W)
@@ -23,15 +37,29 @@ STEP 3 - MATERIAL FORMULAS (apply waste factors, round UP):
 | 2x4x8 Studs | (Perimeter × 0.75) × 1.10 | ea |
 | R-13 Insulation | Wall SF ÷ 88 | bags |
 | 1/2" Drywall 4x8 | (Wall SF + Ceiling SF) × 1.10 ÷ 32 | sheets |
-| Flooret Nakan Base LVP | Floor SF × 1.07 ÷ 23.64 | boxes |
+| LVP Flooring | Floor SF × 1.07 ÷ 23.64 | boxes |
 | Baseboard | Perimeter × 1.10 | LF |
+
+Additional items to count from blueprints:
+| Material | Formula | Unit |
+|----------|---------|------|
+| Interior Doors | Count from plan | ea |
+| Outlets | Count from electrical plan | ea |
+| Switches | Count from electrical plan | ea |
+| Light Fixtures | Count from reflected ceiling | ea |
+| Windows | Count from plan + elevations | ea |
 
 STEP 4 - UNIT PRICES (use unless live data says otherwise):
 - 2x4x8 stud: $3.50/ea
 - R-13 batt bag (88 SF): $57
 - 1/2" drywall 4x8: $16/sheet
-- Flooret Nakan Base LVP: $69.74/box (23.64 SF/box)
+- LVP flooring: $69.74/box (23.64 SF/box)
 - Baseboard trim: $1.25/LF
+- Interior prehung door: $150/ea
+- Duplex outlet w/ plate: $8/ea
+- Single switch w/ plate: $6/ea
+- Recessed light: $35/ea
+- Standard vinyl window: $250/ea
 
 STEP 5 - LABOR RATES (subcontractor pricing):
 | Trade | Rate | Quantity Base |
@@ -41,14 +69,25 @@ STEP 5 - LABOR RATES (subcontractor pricing):
 | Drywall (hang+finish) | $1.25/SF | Wall SF + Ceiling SF |
 | LVP Installation | $2.50/SF | Floor SF |
 | Baseboard | $2.00/LF | Perimeter |
+| Door Hang/Trim | $150/ea | Per door |
+| Electrical Rough | $100/outlet+switch | Total devices |
+| Electrical Trim | $50/device | Total devices |
+| Painting | $1.50/SF | Wall + Ceiling SF |
 
 RULES:
-- Only estimate what user requests. No scope creep.
-- Show your math in the Notes column briefly.
-- Always round material quantities UP to whole numbers.
-- Apply sales tax only to materials, not labor.
+- Only estimate what user requests or what you can clearly see in the blueprint
+- Show your math in the Notes column briefly
+- Always round material quantities UP to whole numbers
+- Apply sales tax only to materials, not labor
+- If blueprint is unclear, state your assumptions
 
 OUTPUT FORMAT:
+**BLUEPRINT ANALYSIS** (if image provided)
+• Scale: [identified scale or "not shown"]
+• Dimensions read: [list what you measured]
+• Scope identified: [what work is shown]
+• Notes: [any callouts or specs visible]
+
 **ASSUMPTIONS**
 • Room: [L]×[W] ft, [H] ft ceiling
 • Scope: [list what's included]
@@ -154,7 +193,6 @@ async function searchWithRetry(apiKey: string, query: string, retries = 2): Prom
   return null;
 }
 
-// Multi-angle search queries for cross-validation
 function buildSearchQueries(userMsg: string, date: string, state: string | null) {
   const queries: { name: string; query: string }[] = [];
   const region = state || "United States";
@@ -187,19 +225,35 @@ function buildSearchQueries(userMsg: string, date: string, state: string | null)
     });
   }
   
-  // Always search for labor rates with regional focus
   queries.push({
     name: `Labor Rates (${region})`,
     query: `${region} residential construction subcontractor labor rates ${date}. What do GCs pay subs for: drywall hang and finish per SF, framing per linear foot, LVP flooring installation per SF, baseboard installation per linear foot. Labor only rates, not total installed cost.`
   });
   
-  // Add a second labor query for cross-validation
   queries.push({
     name: "Labor Rate Validation",
     query: `Drywall subcontractor rates ${date} per square foot labor only hang and finish level 4. Flooring installer rates per square foot LVP click-lock. Current market rates.`
   });
   
   return queries;
+}
+
+// Extract text content from message for search purposes
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const textParts = content.filter((p: any) => p.type === 'text').map((p: any) => p.text);
+    return textParts.join(' ');
+  }
+  return '';
+}
+
+// Check if message contains images
+function hasImages(content: unknown): boolean {
+  if (Array.isArray(content)) {
+    return content.some((p: any) => p.type === 'image_url');
+  }
+  return false;
 }
 
 serve(async (req) => {
@@ -209,22 +263,25 @@ serve(async (req) => {
 
   try {
     const { messages } = await req.json();
-    const lastUserMsg = messages[messages.length - 1]?.content || "";
-    const lowerMsg = lastUserMsg.toLowerCase();
+    const lastUserMsg = messages[messages.length - 1];
+    const lastContent = lastUserMsg?.content || "";
+    const textContent = extractTextContent(lastContent);
+    const lowerMsg = textContent.toLowerCase();
+    const containsImages = hasImages(lastContent);
     
     const date = getCurrentDate();
     const state = extractState(lowerMsg);
     
-    console.log(`Request received. Date: ${date.formatted}, State: ${state || "not specified"}`);
+    console.log(`Request received. Date: ${date.formatted}, State: ${state || "not specified"}, Has images: ${containsImages}`);
     
     let pricingContext = "";
     const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
     
-    if (PERPLEXITY_API_KEY) {
+    // Only do live pricing search for text-based requests (not blueprint analysis)
+    if (PERPLEXITY_API_KEY && !containsImages) {
       const searchQueries = buildSearchQueries(lowerMsg, date.formatted, state);
       console.log(`Running ${searchQueries.length} pricing searches...`);
       
-      // Run all searches in parallel
       const results = await Promise.all(
         searchQueries.map(q => searchWithRetry(PERPLEXITY_API_KEY, q.query).then(r => ({ name: q.name, result: r })))
       );
@@ -254,13 +311,28 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Inject pricing context into the last user message
-    const enhancedMessages = messages.map((msg: { role: string; content: string }, idx: number) => {
+    // Process messages - inject pricing context into last text message
+    const enhancedMessages = messages.map((msg: { role: string; content: unknown }, idx: number) => {
       if (idx === messages.length - 1 && msg.role === "user" && pricingContext) {
+        // If it's multimodal content, add pricing to the text part
+        if (Array.isArray(msg.content)) {
+          return {
+            ...msg,
+            content: msg.content.map((part: any) => {
+              if (part.type === 'text') {
+                return { ...part, text: part.text + pricingContext };
+              }
+              return part;
+            })
+          };
+        }
+        // If it's just text
         return { ...msg, content: msg.content + pricingContext };
       }
       return msg;
     });
+
+    console.log("Sending to AI gateway with", containsImages ? "images" : "text only");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
