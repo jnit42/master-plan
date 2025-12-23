@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Message = {
   role: "user" | "assistant";
@@ -204,25 +205,41 @@ export function EstimatorChat() {
               }`}
             >
               {msg.role === "assistant" ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
+                <div className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
                   <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
                     components={{
                       table: ({ children }) => (
-                        <div className="overflow-x-auto my-2">
-                          <table className="min-w-full text-sm border-collapse">
+                        <div className="overflow-x-auto my-3 rounded border border-border">
+                          <table className="min-w-full text-sm">
                             {children}
                           </table>
                         </div>
                       ),
+                      thead: ({ children }) => (
+                        <thead className="bg-muted/50">{children}</thead>
+                      ),
                       th: ({ children }) => (
-                        <th className="border border-border px-2 py-1 bg-muted font-medium text-left">
+                        <th className="border-b border-border px-3 py-2 font-semibold text-left text-foreground whitespace-nowrap">
                           {children}
                         </th>
                       ),
                       td: ({ children }) => (
-                        <td className="border border-border px-2 py-1">
+                        <td className="border-b border-border/50 px-3 py-2 whitespace-nowrap">
                           {children}
                         </td>
+                      ),
+                      tr: ({ children }) => (
+                        <tr className="hover:bg-muted/30">{children}</tr>
+                      ),
+                      strong: ({ children }) => (
+                        <strong className="font-bold text-foreground">{children}</strong>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="list-disc list-inside my-2 space-y-1">{children}</ul>
+                      ),
+                      li: ({ children }) => (
+                        <li className="text-foreground">{children}</li>
                       ),
                     }}
                   >
