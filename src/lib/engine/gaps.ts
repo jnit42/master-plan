@@ -1,6 +1,6 @@
 // =============================================
 // MasterContractorOS Gap Detection Engine
-// Safety Constitution Embedded
+// Safety Constitution Embedded + Destructive Dependencies
 // =============================================
 
 import { 
@@ -10,6 +10,7 @@ import {
   GapDetectionResult,
   SAFETY_RULES 
 } from '@/types/mastercontractor';
+import { SCOPE_DEPENDENCIES } from '@/lib/data/ratebook';
 
 /**
  * Check if text contains exclusion keywords
@@ -60,6 +61,44 @@ export function isLaborOnly(text: string): {
   }
   
   return { isLabor: false, keyword: '' };
+}
+
+/**
+ * Scan for destructive dependencies
+ * If TRIGGER scope is present but REQUIRES scope is missing, create gap
+ */
+export function scanDestructiveDependencies(
+  lines: Line[],
+  projectId: string
+): Partial<Gap>[] {
+  const gaps: Partial<Gap>[] = [];
+  const allText = lines.map(l => (l.description || '').toLowerCase()).join(' ');
+  
+  for (const dep of SCOPE_DEPENDENCIES) {
+    // Check if any trigger keyword is present
+    const hasTrigger = dep.trigger.some(t => allText.includes(t));
+    
+    if (hasTrigger) {
+      // Check if any required keyword is present
+      const hasRequired = dep.requires.some(r => allText.includes(r));
+      
+      if (!hasRequired) {
+        gaps.push({
+          project_id: projectId,
+          scope_tag: dep.trigger[0].toUpperCase(),
+          description: dep.gapDescription,
+          source: `Dependency Rule: ${dep.trigger.join('/')} requires ${dep.requires.join('/')}`,
+          estimated_low: dep.defaultEstimate.low,
+          estimated_mid: dep.defaultEstimate.likely,
+          estimated_high: dep.defaultEstimate.high,
+          rate_source: dep.defaultEstimate.source.ref,
+          confidence: 'LOW'
+        });
+      }
+    }
+  }
+  
+  return gaps;
 }
 
 /**
@@ -123,6 +162,10 @@ export function scanQuoteForGaps(
     }
   }
   
+  // Scan for destructive dependencies
+  const dependencyGaps = scanDestructiveDependencies(lines, projectId);
+  gaps.push(...dependencyGaps);
+  
   return { gaps, laborOnlyFlags };
 }
 
@@ -139,6 +182,14 @@ export function consolidateGaps(gaps: Partial<Gap>[]): Partial<Gap>[] {
       // Merge sources
       const existing = gapMap.get(key)!;
       existing.source = `${existing.source}; ${gap.source}`;
+      
+      // Keep highest estimates
+      if (gap.estimated_high && (!existing.estimated_high || gap.estimated_high > existing.estimated_high)) {
+        existing.estimated_low = gap.estimated_low;
+        existing.estimated_mid = gap.estimated_mid;
+        existing.estimated_high = gap.estimated_high;
+        existing.rate_source = gap.rate_source;
+      }
     } else {
       gapMap.set(key, { ...gap });
     }

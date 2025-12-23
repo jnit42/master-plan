@@ -1,6 +1,6 @@
 // =============================================
 // MasterContractorOS Type Definitions
-// Safety Constitution v1.0
+// Safety Constitution v2.0 - Physics Aware
 // =============================================
 
 // Database enum types
@@ -16,6 +16,7 @@ export type LineType =
   | 'MATERIAL'
   | 'LABOR'
   | 'MATERIAL_AND_LABOR'
+  | 'LOGISTICS'
   | 'OTHER';
 
 export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -31,7 +32,57 @@ export type DecisionType =
   | 'SPEC_CONFLICT'        // Brand/spec mismatch
   | 'SOFT_MATCH'           // ≤8% variance, needs review
   | 'AMBIGUOUS_SCOPE'      // Vague input needs clarification
-  | 'LABOR_ONLY';          // Materials missing
+  | 'LABOR_ONLY'           // Materials missing
+  | 'BRAND_CONFLICT';      // Plan vs Quote brand mismatch
+
+// =============================================
+// PHYSICS LAYER - Site Context & Access
+// =============================================
+
+export type AccessDifficulty = 
+  | 'EASY'            // Ground floor, good parking
+  | 'MODERATE'        // 2nd floor, stairs
+  | 'HARD'            // 3rd+ floor walkup, limited access
+  | 'CRANE_REQUIRED'; // Heavy equipment needed
+
+export type RateSourceType = 
+  | 'QUOTE_EXTRACT'   // Extracted from vendor quote
+  | 'RATEBOOK_V1'     // From regional ratebook
+  | 'LOGISTICS_RULE'  // Calculated from job parameters
+  | 'USER_OVERRIDE';  // Manual entry by user
+
+export interface RateSource {
+  type: RateSourceType;
+  ref: string;         // "Quote #1042" or "MA-2025-Q1-Ratebook"
+  date?: string;       // When the rate was captured
+}
+
+export interface CostRange {
+  low: number;
+  likely: number;
+  high: number;
+  confidence: ConfidenceLevel;
+  source: RateSource;
+}
+
+export interface SiteContext {
+  access: AccessDifficulty;
+  isOccupied: boolean;         // True = dust protection, working hours limits
+  distanceToParking: number;   // Feet from parking to work area
+  hasElevator: boolean;        // For multi-story buildings
+  floorNumber: number;         // 1 = ground floor
+}
+
+// Labor multipliers by access difficulty
+export const LABOR_MULTIPLIERS: Record<AccessDifficulty, number> = {
+  EASY: 1.0,
+  MODERATE: 1.15,
+  HARD: 1.35,
+  CRANE_REQUIRED: 1.60
+};
+
+// Occupancy penalty for dust protection, restricted hours
+export const OCCUPANCY_MULTIPLIER = 1.15;
 
 // =============================================
 // CORE INTERFACES
