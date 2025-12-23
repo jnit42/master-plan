@@ -30,18 +30,24 @@ export function EstimatorChat() {
   }, [messages]);
 
   const extractPricingQuery = (userMessage: string): string | null => {
-    // Extract potential pricing searches from the message
-    const keywords = ["price", "cost", "flooring", "drywall", "lumber", "insulation", "flooret", "nakan", "home depot", "lowes"];
-    const hasKeyword = keywords.some(k => userMessage.toLowerCase().includes(k));
+    const msg = userMessage.toLowerCase();
+    const queries: string[] = [];
     
-    if (hasKeyword) {
-      // Create a focused pricing query
-      const materials = userMessage.match(/\b(flooret|nakan|lvp|drywall|lumber|2x4|insulation|r-13|r-15|baseboard|joint compound|screws)\b/gi);
-      if (materials?.length) {
-        return `Current ${materials.join(", ")} prices at Home Depot Lowe's 2024 2025`;
-      }
+    // Specific product matches
+    if (msg.includes("flooret") || msg.includes("nakan")) {
+      queries.push("Flooret Modin Nakan LVP flooring price per square foot 2024 2025");
     }
-    return null;
+    if (msg.includes("drywall") || msg.includes("sheetrock")) {
+      queries.push("1/2 inch drywall sheet price Home Depot Lowes December 2024");
+    }
+    if (msg.includes("insulation") || msg.includes("insulate")) {
+      queries.push("R-13 fiberglass batt insulation price per square foot Home Depot");
+    }
+    if (msg.includes("frame") || msg.includes("framing") || msg.includes("2x4") || msg.includes("lumber")) {
+      queries.push("2x4x8 SPF stud lumber price Home Depot December 2024");
+    }
+    
+    return queries.length > 0 ? queries.join(". ") : null;
   };
 
   const handleSubmit = async () => {
