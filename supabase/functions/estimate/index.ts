@@ -5,43 +5,49 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GC_SYSTEM_PROMPT = `You are a Senior GC estimator. Provide accurate, competitive material takeoffs and labor estimates.
+const GC_SYSTEM_PROMPT = `You are a Senior GC estimator with 25+ years experience. You provide accurate, competitive material takeoffs and labor estimates.
 
 CRITICAL RULES:
-1. ONLY estimate what the user asks for. DO NOT add scope (no paint unless asked, no electrical unless asked).
-2. Use REALISTIC sub rates - these are what GCs PAY subs, not retail:
-   - Framing: $5-8/LF for walls
-   - Insulation: $0.60-0.80/SF  
-   - Drywall hang+finish: $1.50-2.25/SF (Level 4)
-   - LVP install: $2-3/SF
-   - Baseboard: $1.50-2.50/LF
-3. Use CURRENT material pricing from provided search data when available.
-4. Waste factors: 10% drywall, 7% flooring, 10% framing.
+1. ONLY estimate what the user explicitly asks for. NO scope creep - no paint unless asked, no electrical unless asked, no doors/windows unless asked.
+2. Use REALISTIC subcontractor rates - these are what GCs PAY subs in competitive markets:
+   - Framing: $5-7/LF for walls (studs, plates, blocking)
+   - Insulation: $0.55-0.70/SF (batts in framed walls)
+   - Drywall hang+finish L4: $1.40-1.80/SF
+   - LVP install: $1.75-2.50/SF
+   - Baseboard: $1.25-2.00/LF
+3. Use CURRENT material pricing from search data when provided. If search data is provided, cite those prices.
+4. Standard waste factors: 10% drywall, 7% flooring, 10% framing lumber.
+5. When user specifies a state/region, apply correct sales tax to materials only (not labor).
 
-SPECIFIC PRODUCT KNOWLEDGE:
-- Flooret Nakan Base = $2.95/SF (20mil wear layer LVP)
-- Flooret Nakan Signature = $4.95/SF (40mil wear layer)
-- R-13 batts = ~$0.65/SF
-- 1/2" drywall = ~$0.50/SF ($16-18/sheet)
-- 2x4x8 studs = $3.50-4.50/ea
+MATERIAL KNOWLEDGE (use if no search data provided):
+- Flooret Nakan Base LVP = $2.95/SF (20mil wear layer)
+- R-13 kraft-faced batts = $0.60-0.70/SF
+- 1/2" drywall 4x8 = $14-18/sheet (~$0.44-0.56/SF)
+- 2x4x8 SPF studs = $3.00-4.50/ea (lumber fluctuates)
 
-OUTPUT FORMAT:
-Use clean markdown tables:
+OUTPUT FORMAT - Use clean markdown tables:
+
+**ASSUMPTIONS**
+[List dimensions, ceiling height, scope included/excluded in bullets]
 
 **MATERIALS**
-| Item | Qty | Unit | $/Unit | Total |
-|------|-----|------|--------|-------|
+| Item | Qty | Unit | $/Unit | Subtotal |
+|------|-----|------|--------|----------|
 
 **LABOR (Sub Rates)**
 | Trade | Units | Rate | Total |
 |-------|-------|------|-------|
 
 **SUMMARY**
-- Materials: $X
-- Labor: $X
-- **TOTAL HARD COST**: $X
+| Category | Amount |
+|----------|--------|
+| Materials Subtotal | $X |
+| Sales Tax (X%) | $X |
+| **Materials Total** | $X |
+| Labor Total | $X |
+| **TOTAL HARD COST** | $X |
 
-STATE YOUR ASSUMPTIONS upfront (dimensions, ceiling height, wall count). Be concise.`;
+Be CONCISE. No fluff. Just numbers and brief notes.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -50,13 +56,17 @@ serve(async (req) => {
 
   try {
     const { messages, searchPricing } = await req.json();
+    console.log("Received request with searchPricing:", JSON.stringify(searchPricing));
     
-    // If we need real-time pricing, use Perplexity first
+    // If live pricing is enabled and we have a query, use Perplexity
     let pricingContext = "";
     if (searchPricing && searchPricing.query) {
       const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+      console.log("Perplexity API key exists:", !!PERPLEXITY_API_KEY);
+      
       if (PERPLEXITY_API_KEY) {
         try {
+          console.log("Calling Perplexity with query:", searchPricing.query);
           const searchResponse = await fetch("https://api.perplexity.ai/chat/completions", {
             method: "POST",
             headers: {
@@ -68,17 +78,28 @@ serve(async (req) => {
               messages: [
                 { 
                   role: "system", 
-                  content: "You are a construction materials pricing researcher. Return current prices from Home Depot, Lowe's, or manufacturer websites. Be specific with SKUs and current prices." 
+                  content: "You are a construction materials pricing researcher. Return ONLY current retail prices from Home Depot, Lowe's, or manufacturer sites. Be specific with product names, SKUs if available, and current prices per unit. Format as a simple list." 
                 },
                 { role: "user", content: searchPricing.query }
               ],
-              search_recency_filter: "month",
+              search_recency_filter: "week",
             }),
           });
           
+          console.log("Perplexity response status:", searchResponse.status);
+          
           if (searchResponse.ok) {
             const searchData = await searchResponse.json();
-            pricingContext = `\n\n[REAL-TIME PRICING DATA]\n${searchData.choices?.[0]?.message?.content || ""}\nSources: ${searchData.citations?.join(", ") || "N/A"}\n`;
+            const content = searchData.choices?.[0]?.message?.content || "";
+            const citations = searchData.citations?.join(", ") || "N/A";
+            console.log("Perplexity returned content length:", content.length);
+            
+            if (content) {
+              pricingContext = `\n\n[REAL-TIME PRICING DATA - Use these prices]\n${content}\nSources: ${citations}\n\nIMPORTANT: Use the prices from this search data in your estimate.\n`;
+            }
+          } else {
+            const errorText = await searchResponse.text();
+            console.error("Perplexity error response:", errorText);
           }
         } catch (e) {
           console.error("Perplexity search failed:", e);
@@ -92,13 +113,14 @@ serve(async (req) => {
     }
 
     // Inject pricing context into the last user message if we have it
-    const enhancedMessages = [...messages];
-    if (pricingContext && enhancedMessages.length > 0) {
-      const lastMsg = enhancedMessages[enhancedMessages.length - 1];
-      if (lastMsg.role === "user") {
-        lastMsg.content = lastMsg.content + pricingContext;
+    const enhancedMessages = messages.map((msg: { role: string; content: string }, idx: number) => {
+      if (idx === messages.length - 1 && msg.role === "user" && pricingContext) {
+        return { ...msg, content: msg.content + pricingContext };
       }
-    }
+      return msg;
+    });
+
+    console.log("Calling Lovable AI with", enhancedMessages.length, "messages");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",

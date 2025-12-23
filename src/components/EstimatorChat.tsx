@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Search, Trash2 } from "lucide-react";
+import { Send, Loader2, Wifi, WifiOff, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -34,18 +34,26 @@ export function EstimatorChat() {
     const msg = userMessage.toLowerCase();
     const queries: string[] = [];
     
-    // Specific product matches
-    if (msg.includes("flooret") || msg.includes("nakan")) {
-      queries.push("Flooret Modin Nakan LVP flooring price per square foot 2024 2025");
+    // Build comprehensive pricing query based on materials mentioned
+    if (msg.includes("flooret") || msg.includes("nakan") || msg.includes("lvp") || msg.includes("flooring")) {
+      queries.push("Flooret Nakan Base LVP flooring current price per square foot");
     }
-    if (msg.includes("drywall") || msg.includes("sheetrock")) {
-      queries.push("1/2 inch drywall sheet price Home Depot Lowes December 2024");
+    if (msg.includes("drywall") || msg.includes("sheetrock") || msg.includes("dry wall")) {
+      queries.push("1/2 inch drywall 4x8 sheet price Home Depot Lowes current");
     }
-    if (msg.includes("insulation") || msg.includes("insulate")) {
-      queries.push("R-13 fiberglass batt insulation price per square foot Home Depot");
+    if (msg.includes("insulation") || msg.includes("insulate") || msg.includes("r-13") || msg.includes("r13")) {
+      queries.push("R-13 fiberglass batt insulation price per square foot current");
     }
-    if (msg.includes("frame") || msg.includes("framing") || msg.includes("2x4") || msg.includes("lumber")) {
-      queries.push("2x4x8 SPF stud lumber price Home Depot December 2024");
+    if (msg.includes("frame") || msg.includes("framing") || msg.includes("2x4") || msg.includes("stud") || msg.includes("lumber")) {
+      queries.push("2x4x8 SPF lumber stud price Home Depot current");
+    }
+    if (msg.includes("baseboard") || msg.includes("trim") || msg.includes("base board")) {
+      queries.push("MDF baseboard trim 3.5 inch price per linear foot");
+    }
+    
+    // Always search for labor rates if it's an estimate request
+    if (msg.includes("labor") || msg.includes("sub") || msg.includes("cost") || msg.includes("estimate")) {
+      queries.push("subcontractor rates drywall framing flooring installation 2024 2025 per square foot");
     }
     
     return queries.length > 0 ? queries.join(". ") : null;
@@ -76,6 +84,10 @@ export function EstimatorChat() {
 
     try {
       const pricingQuery = useLivePricing ? extractPricingQuery(input) : null;
+      
+      if (pricingQuery && useLivePricing) {
+        toast.info("Fetching live pricing data...", { duration: 2000 });
+      }
       
       const response = await fetch(CHAT_URL, {
         method: "POST",
@@ -131,7 +143,6 @@ export function EstimatorChat() {
     } catch (error) {
       console.error("Chat error:", error);
       toast.error(error instanceof Error ? error.message : "Failed to get response");
-      // Remove the empty assistant message if we failed
       setMessages(prev => {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant" && !last.content) {
@@ -158,25 +169,30 @@ export function EstimatorChat() {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="border-b border-border p-4 flex items-center justify-between">
+      <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-card">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">GC Estimator</h1>
-          <p className="text-sm text-muted-foreground">Construction cost estimating with real-time pricing</p>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">GC Estimator</h1>
+          <p className="text-sm text-muted-foreground">Fast, accurate takeoffs with live pricing</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-muted/50 rounded-full px-3 py-1.5">
             <Switch
               id="live-pricing"
               checked={useLivePricing}
               onCheckedChange={setUseLivePricing}
+              className="scale-90"
             />
-            <Label htmlFor="live-pricing" className="text-sm flex items-center gap-1">
-              <Search className="h-3 w-3" />
-              Live Pricing
+            <Label htmlFor="live-pricing" className="text-sm font-medium flex items-center gap-1.5 cursor-pointer">
+              {useLivePricing ? (
+                <Wifi className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+              Live Prices
             </Label>
           </div>
           {messages.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={clearChat}>
+            <Button variant="ghost" size="icon" onClick={clearChat} className="h-8 w-8">
               <Trash2 className="h-4 w-4" />
             </Button>
           )}
@@ -184,11 +200,19 @@ export function EstimatorChat() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="text-center text-muted-foreground py-12">
-            <p className="text-lg mb-2">Ask me to estimate any construction project</p>
-            <p className="text-sm">Example: "Estimate a 20x30 basement finish with framing, insulation, drywall, and Flooret Nakan flooring"</p>
+          <div className="flex flex-col items-center justify-center h-full text-center py-12">
+            <div className="bg-muted/30 rounded-2xl p-8 max-w-lg">
+              <h2 className="text-lg font-semibold text-foreground mb-2">Ready to estimate</h2>
+              <p className="text-muted-foreground mb-4">
+                Describe your project scope and I'll generate a detailed material takeoff with labor costs.
+              </p>
+              <div className="text-left bg-background/50 rounded-lg p-4 text-sm text-muted-foreground font-mono">
+                <p className="mb-1">Try:</p>
+                <p>"20x30 basement, 8ft ceilings, frame + insulate + drywall + Flooret Nakan flooring. RI sales tax. Give me tight sub rates."</p>
+              </div>
+            </div>
           </div>
         )}
         
@@ -198,48 +222,57 @@ export function EstimatorChat() {
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[85%] rounded-lg px-4 py-3 ${
+              className={`max-w-[90%] rounded-xl px-4 py-3 ${
                 msg.role === "user"
                   ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground"
+                  : "bg-card border border-border shadow-sm"
               }`}
             >
               {msg.role === "assistant" ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
+                <div className="prose prose-sm dark:prose-invert max-w-none">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       table: ({ children }) => (
-                        <div className="overflow-x-auto my-3 rounded border border-border">
+                        <div className="overflow-x-auto my-4 rounded-lg border border-border bg-background">
                           <table className="min-w-full text-sm">
                             {children}
                           </table>
                         </div>
                       ),
                       thead: ({ children }) => (
-                        <thead className="bg-muted/50">{children}</thead>
+                        <thead className="bg-muted/70 border-b border-border">{children}</thead>
                       ),
                       th: ({ children }) => (
-                        <th className="border-b border-border px-3 py-2 font-semibold text-left text-foreground whitespace-nowrap">
+                        <th className="px-4 py-2.5 font-semibold text-left text-foreground whitespace-nowrap text-xs uppercase tracking-wide">
                           {children}
                         </th>
                       ),
                       td: ({ children }) => (
-                        <td className="border-b border-border/50 px-3 py-2 whitespace-nowrap">
+                        <td className="px-4 py-2 border-b border-border/30 text-foreground">
                           {children}
                         </td>
                       ),
                       tr: ({ children }) => (
-                        <tr className="hover:bg-muted/30">{children}</tr>
+                        <tr className="hover:bg-muted/20 transition-colors">{children}</tr>
                       ),
                       strong: ({ children }) => (
                         <strong className="font-bold text-foreground">{children}</strong>
                       ),
+                      h2: ({ children }) => (
+                        <h2 className="text-base font-bold text-foreground mt-4 mb-2 border-b border-border pb-1">{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-semibold text-foreground mt-3 mb-1">{children}</h3>
+                      ),
                       ul: ({ children }) => (
-                        <ul className="list-disc list-inside my-2 space-y-1">{children}</ul>
+                        <ul className="list-disc list-outside ml-4 my-2 space-y-0.5 text-foreground">{children}</ul>
                       ),
                       li: ({ children }) => (
                         <li className="text-foreground">{children}</li>
+                      ),
+                      p: ({ children }) => (
+                        <p className="my-2 text-foreground leading-relaxed">{children}</p>
                       ),
                     }}
                   >
@@ -247,7 +280,7 @@ export function EstimatorChat() {
                   </ReactMarkdown>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
               )}
             </div>
           </div>
@@ -255,8 +288,11 @@ export function EstimatorChat() {
         
         {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
           <div className="flex justify-start">
-            <div className="bg-muted rounded-lg px-4 py-3">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Calculating estimate...</span>
+              </div>
             </div>
           </div>
         )}
@@ -265,21 +301,21 @@ export function EstimatorChat() {
       </div>
 
       {/* Input */}
-      <div className="border-t border-border p-4">
-        <div className="flex gap-2">
+      <div className="border-t border-border p-4 bg-card">
+        <div className="flex gap-3 max-w-4xl mx-auto">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe your project (e.g., 20x30 basement, 8ft ceilings, framing + drywall + flooring)"
-            className="min-h-[60px] resize-none"
+            placeholder="Describe your project scope..."
+            className="min-h-[56px] resize-none text-sm bg-background"
             disabled={isLoading}
           />
           <Button
             onClick={handleSubmit}
             disabled={!input.trim() || isLoading}
             size="icon"
-            className="h-[60px] w-[60px]"
+            className="h-14 w-14 shrink-0"
           >
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -289,8 +325,9 @@ export function EstimatorChat() {
           </Button>
         </div>
         {useLivePricing && (
-          <p className="text-xs text-muted-foreground mt-2">
-            🔍 Live pricing enabled - will search current material prices when relevant
+          <p className="text-xs text-center text-green-600 dark:text-green-400 mt-2 flex items-center justify-center gap-1">
+            <Wifi className="h-3 w-3" />
+            Live pricing via Perplexity web search
           </p>
         )}
       </div>
