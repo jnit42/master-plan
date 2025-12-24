@@ -6,10 +6,9 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as pdfjsLib from "pdfjs-dist";
-import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
-// Set the worker source using bundled worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+// Set PDF.js worker - use CDN with exact version match
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 type MessageContent = 
   | string 
@@ -30,35 +29,56 @@ type FilePreview = {
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/estimate`;
 
 async function convertPdfToImages(file: File): Promise<string[]> {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const images: string[] = [];
+  console.log("Starting PDF conversion for:", file.name, "size:", file.size);
   
-  // Convert each page (up to 10 pages to avoid huge payloads)
-  const maxPages = Math.min(pdf.numPages, 10);
-  
-  for (let i = 1; i <= maxPages; i++) {
-    const page = await pdf.getPage(i);
-    const scale = 2; // Higher scale for better readability
-    const viewport = page.getViewport({ scale });
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    console.log("ArrayBuffer created, size:", arrayBuffer.byteLength);
     
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) continue;
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    console.log("PDF loaded, pages:", pdf.numPages);
     
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    const images: string[] = [];
     
-    await page.render({
-      canvasContext: context,
-      viewport: viewport,
-    }).promise;
+    // Convert each page (up to 10 pages to avoid huge payloads)
+    const maxPages = Math.min(pdf.numPages, 10);
     
-    // Convert to JPEG for smaller file size
-    images.push(canvas.toDataURL('image/jpeg', 0.85));
+    for (let i = 1; i <= maxPages; i++) {
+      console.log(`Rendering page ${i}/${maxPages}`);
+      const page = await pdf.getPage(i);
+      
+      // Use scale of 1.5 for balance between quality and size
+      const scale = 1.5;
+      const viewport = page.getViewport({ scale });
+      
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) {
+        console.error("Failed to get canvas context for page", i);
+        continue;
+      }
+      
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      
+      await page.render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise;
+      
+      // Convert to JPEG with moderate quality
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      console.log(`Page ${i} converted, size: ${Math.round(dataUrl.length / 1024)}KB`);
+      images.push(dataUrl);
+    }
+    
+    console.log("PDF conversion complete, total images:", images.length);
+    return images;
+  } catch (error) {
+    console.error("PDF conversion failed:", error);
+    throw error;
   }
-  
-  return images;
 }
 
 export function EstimatorChat() {
@@ -114,17 +134,24 @@ export function EstimatorChat() {
         if (file.type === 'application/pdf') {
           // Convert PDF to images
           toast.info(`Processing ${file.name}...`);
-          const pdfImages = await convertPdfToImages(file);
-          
-          if (pdfImages.length > 0) {
-            // Store first page as preview, but we'll send all pages
-            setFiles(prev => [...prev, { 
-              file, 
-              dataUrl: pdfImages[0], 
-              type: 'pdf',
-              pageCount: pdfImages.length 
-            }]);
-            toast.success(`${file.name}: ${pdfImages.length} page(s) ready`);
+          try {
+            const pdfImages = await convertPdfToImages(file);
+            
+            if (pdfImages.length > 0) {
+              // Store first page as preview, but we'll send all pages
+              setFiles(prev => [...prev, { 
+                file, 
+                dataUrl: pdfImages[0], 
+                type: 'pdf',
+                pageCount: pdfImages.length 
+              }]);
+              toast.success(`${file.name}: ${pdfImages.length} page(s) ready`);
+            } else {
+              toast.error(`${file.name}: No pages could be converted`);
+            }
+          } catch (pdfError) {
+            console.error("PDF processing error:", pdfError);
+            toast.error(`${file.name}: Failed to process PDF - ${pdfError instanceof Error ? pdfError.message : 'unknown error'}`);
           }
         } else if (file.type.startsWith('image/')) {
           const reader = new FileReader();
