@@ -415,6 +415,15 @@ export function EstimatorChat() {
     setFiles([]);
   };
 
+  const applySamplePrompt = () => {
+    setInput("20x30 basement, 8ft ceilings. Frame, insulate, drywall, LVP flooring. RI sales tax.");
+    toast.success("Sample prompt added below. Press send to run.");
+  };
+
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
   const getDisplayContent = (content: MessageContent): string => {
     if (typeof content === 'string') return content;
     const textPart = content.find(p => p.type === 'text');
@@ -485,13 +494,13 @@ export function EstimatorChat() {
                 Upload blueprints (PDF or images) or describe your project for a detailed material takeoff.
               </p>
               <div className="space-y-3">
-                <div className="bg-muted/50 rounded-xl p-4 text-left">
+                <button onClick={applySamplePrompt} className="w-full bg-muted/50 rounded-xl p-4 text-left hover:bg-muted/80 transition-colors">
                   <p className="text-xs text-muted-foreground mb-2 uppercase tracking-wide font-medium">Text Prompt</p>
                   <p className="text-sm text-foreground">
                     "20x30 basement, 8ft ceilings. Frame, insulate, drywall, LVP flooring. RI sales tax."
                   </p>
-                </div>
-                <div className="bg-blue-500/10 rounded-xl p-4 text-left border border-blue-500/20">
+                </button>
+                <button onClick={openFilePicker} className="w-full bg-blue-500/10 rounded-xl p-4 text-left border border-blue-500/20 hover:bg-blue-500/20 transition-colors">
                   <p className="text-xs text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide font-medium flex items-center gap-1.5">
                     <FileText className="h-3 w-3" />
                     PDF & Image Upload
@@ -499,7 +508,7 @@ export function EstimatorChat() {
                   <p className="text-sm text-foreground">
                     Upload floor plans, blueprints, or architectural drawings (PDF or images) for full scope analysis.
                   </p>
-                </div>
+                </button>
               </div>
             </div>
           </div>
