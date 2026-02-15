@@ -1,18 +1,84 @@
+import { useMemo, useState } from "react";
 import { EstimatorChat } from "@/components/EstimatorChat";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Building2, FileCheck2, LogOut, MessageSquareText, ShieldCheck, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
+import { benchmarkSubBid, recommendRetailPrice } from "@/lib/engine/pricingIntelligence";
+
+interface QuickProject {
+  id: string;
+  name: string;
+  city: string;
+  status: "active" | "planning";
+}
+
+const formatMoney = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 
 const Index = () => {
   const { user, signOut } = useAuth();
 
+  const [projectName, setProjectName] = useState("");
+  const [projectCity, setProjectCity] = useState("");
+  const [projects, setProjects] = useState<QuickProject[]>([]);
+
+  const [marketLow, setMarketLow] = useState("8500");
+  const [marketLikely, setMarketLikely] = useState("10000");
+  const [marketHigh, setMarketHigh] = useState("12000");
+  const [subBid, setSubBid] = useState("13500");
+
+  const [hardCost, setHardCost] = useState("100000");
+  const [oh, setOh] = useState("10");
+  const [profit, setProfit] = useState("15");
+  const [cont, setCont] = useState("8");
+
+  const quoteBenchmark = useMemo(() => {
+    return benchmarkSubBid(Number(subBid) || 0, {
+      low: Number(marketLow) || 0,
+      likely: Number(marketLikely) || 0,
+      high: Number(marketHigh) || 0,
+      confidence: "MEDIUM",
+      source: { type: "RATEBOOK_V1", ref: "quick-tool", date: new Date().toISOString() },
+    });
+  }, [marketHigh, marketLikely, marketLow, subBid]);
+
+  const retail = useMemo(() => {
+    return recommendRetailPrice(Number(hardCost) || 0, {
+      overheadPercent: Number(oh) || 0,
+      profitPercent: Number(profit) || 0,
+      contingencyPercent: Number(cont) || 0,
+    });
+  }, [cont, hardCost, oh, profit]);
+
   const handleSignOut = async () => {
     await signOut();
     toast.success("Signed out");
+  };
+
+  const addProject = () => {
+    if (!projectName.trim()) {
+      toast.error("Project name is required");
+      return;
+    }
+
+    setProjects((prev) => [
+      {
+        id: crypto.randomUUID(),
+        name: projectName.trim(),
+        city: projectCity.trim() || "Unknown",
+        status: "planning",
+      },
+      ...prev,
+    ]);
+    setProjectName("");
+    setProjectCity("");
+    toast.success("Project draft added");
   };
 
   return (
@@ -69,12 +135,12 @@ const Index = () => {
           <Card className="flex-1 border-0 shadow-none">
             <CardHeader className="p-2">
               <CardTitle className="flex items-center gap-2 text-sm">
-                <TriangleAlert className="h-4 w-4 text-destructive" />
-                Current gap
-                <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">Project UI pending</span>
+                <TriangleAlert className="h-4 w-4 text-primary" />
+                Tools
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">Interactive</span>
               </CardTitle>
               <CardDescription className="text-xs">
-                Projects/Quotes/Lines/Gaps dashboards are scaffolded below for completion.
+                Projects, quote benchmark, and retail targeting tabs now respond with real calculations.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -85,7 +151,7 @@ const Index = () => {
             <TabsTrigger value="estimator">Estimator</TabsTrigger>
             <TabsTrigger value="projects">Projects</TabsTrigger>
             <TabsTrigger value="quotes">Quotes</TabsTrigger>
-            <TabsTrigger value="gaps">Gaps</TabsTrigger>
+            <TabsTrigger value="retail">Retail</TabsTrigger>
           </TabsList>
 
           <TabsContent value="estimator" className="flex-1 overflow-hidden px-0">
@@ -99,19 +165,42 @@ const Index = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Building2 className="h-5 w-5" />
-                  Projects workspace scaffold
+                  Project drafts
                 </CardTitle>
-                <CardDescription>
-                  Create a project list + detail panel connected to your database.
-                </CardDescription>
+                <CardDescription>Add quick project drafts while testing the app.</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="mb-2 text-sm font-medium text-foreground">Suggested next build items:</p>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  <li>Project create/edit/delete flows</li>
-                  <li>Status filters and archived views</li>
-                  <li>Address + budget metadata panels</li>
-                </ul>
+                <div className="flex items-end gap-3 mb-4">
+                  <div className="flex-1">
+                    <Label>Name</Label>
+                    <Input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="Kitchen remodel" />
+                  </div>
+                  <div className="flex-1">
+                    <Label>City</Label>
+                    <Input value={projectCity} onChange={(e) => setProjectCity(e.target.value)} placeholder="Providence" />
+                  </div>
+                  <div>
+                    <Button onClick={addProject}>Add project</Button>
+                  </div>
+                </div>
+
+                <Separator className="my-4" />
+
+                <div className="space-y-2">
+                  {projects.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No projects yet. Add one above to verify interactions.</p>
+                  ) : (
+                    projects.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between rounded-md border p-3">
+                        <div>
+                          <p className="text-sm font-medium">{p.name}</p>
+                          <p className="text-xs text-muted-foreground">{p.city}</p>
+                        </div>
+                        <span className="rounded bg-muted px-2 py-0.5 text-xs">{p.status}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -121,41 +210,56 @@ const Index = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <FileCheck2 className="h-5 w-5" />
-                  Quote reconciliation scaffold
+                  Sub bid benchmark tool
                 </CardTitle>
-                <CardDescription>Dedicated area for wrapper/additive/reference quote workflows.</CardDescription>
+                <CardDescription>Check if a sub quote is low, fair, high, or extreme versus your market range.</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="mb-2 text-sm font-medium text-foreground">Suggested next build items:</p>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  <li>Vendor quote ingestion + normalization</li>
-                  <li>Line-item matching confidence drill-down</li>
-                  <li>Decision queue for potential duplicates</li>
-                </ul>
+                <div className="grid grid-cols-4 gap-3 mb-4">
+                  <Input value={marketLow} onChange={(e) => setMarketLow(e.target.value)} placeholder="Market low" type="number" />
+                  <Input value={marketLikely} onChange={(e) => setMarketLikely(e.target.value)} placeholder="Market likely" type="number" />
+                  <Input value={marketHigh} onChange={(e) => setMarketHigh(e.target.value)} placeholder="Market high" type="number" />
+                  <Input value={subBid} onChange={(e) => setSubBid(e.target.value)} placeholder="Sub bid" type="number" />
+                </div>
+                <div className="rounded-md border p-4 space-y-1">
+                  <p className="text-sm font-semibold">Position: {quoteBenchmark.position}</p>
+                  <p className="text-sm text-muted-foreground">Variance: {quoteBenchmark.varianceFromLikelyPercent}% vs likely</p>
+                  <p className="text-sm text-muted-foreground">{quoteBenchmark.message}</p>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="gaps" className="flex-1 overflow-auto p-6">
+          <TabsContent value="retail" className="flex-1 overflow-auto p-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TriangleAlert className="h-5 w-5" />
-                  Exclusion &amp; gap tracking scaffold
+                  Retail target calculator
                 </CardTitle>
-                <CardDescription>Track missing scope and estimate low/mid/high confidence ranges.</CardDescription>
+                <CardDescription>Quickly derive client-facing floor/target/stretch price from hard costs.</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="mb-2 text-sm font-medium text-foreground">Suggested next build items:</p>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  <li>Gap extraction confirmation screen</li>
-                  <li>Resolved-by quote linkage actions</li>
-                  <li>Ratebook source and confidence audit trail</li>
-                </ul>
-                <Separator className="my-4" />
-                <p className="text-xs text-muted-foreground">
-                  This gives you a complete UI shell now, while preserving a clear build path for production-grade workflows.
-                </p>
+                <div className="grid grid-cols-4 gap-3 mb-4">
+                  <Input value={hardCost} onChange={(e) => setHardCost(e.target.value)} placeholder="Hard cost" type="number" />
+                  <Input value={oh} onChange={(e) => setOh(e.target.value)} placeholder="OH %" type="number" />
+                  <Input value={profit} onChange={(e) => setProfit(e.target.value)} placeholder="Profit %" type="number" />
+                  <Input value={cont} onChange={(e) => setCont(e.target.value)} placeholder="Contingency %" type="number" />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-md border p-4 text-center">
+                    <p className="text-xs text-muted-foreground">Floor</p>
+                    <p className="text-lg font-semibold">{formatMoney(retail.floor)}</p>
+                  </div>
+                  <div className="rounded-md border p-4 text-center">
+                    <p className="text-xs text-muted-foreground">Target</p>
+                    <p className="text-lg font-semibold">{formatMoney(retail.target)}</p>
+                  </div>
+                  <div className="rounded-md border p-4 text-center">
+                    <p className="text-xs text-muted-foreground">Stretch</p>
+                    <p className="text-lg font-semibold">{formatMoney(retail.stretch)}</p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
